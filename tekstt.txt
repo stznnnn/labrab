@@ -1,0 +1,58 @@
+sudo tee /etc/httpd/conf.d/moodle-ssl.conf <<EOF
+<VirtualHost *:443>
+    ServerName srv1.example.com
+    DocumentRoot /var/www/moodle
+    
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/srv1.crt
+    SSLCertificateKeyFile /etc/ssl/private/srv1.key
+    SSLCertificateChainFile /etc/ssl/certs/ca.crt
+    
+    <Directory /var/www/moodle>
+        Options FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+    
+    ErrorLog /var/log/httpd/moodle_ssl_error.log
+    CustomLog /var/log/httpd/moodle_ssl_access.log combined
+</VirtualHost>
+
+<VirtualHost *:80>
+    ServerName srv1.example.com
+    Redirect permanent / https://srv1.example.com/
+</VirtualHost>
+EOF
+
+
+
+
+
+
+sudo tee /usr/local/bin/update_ssl_cert.sh <<'EOF'
+#!/bin/bash
+
+DOMAIN="srv1.example.com"
+CERT_FILE="/etc/ssl/certs/srv1.crt"
+DAYS_REMAINING=90
+
+if ! openssl x509 -checkend $((DAYS_REMAINING*86400)) -noout -in "$CERT_FILE"; then
+    echo "$(date) - Обновление сертификата для $DOMAIN"
+    
+    # Генерация нового ключа и CSR
+    openssl genrsa -out /etc/ssl/private/srv1.key 2048
+    openssl req -new -key /etc/ssl/private/srv1.key -out /etc/ssl/private/srv1.csr -subj "/C=RU/ST=Moscow/L=Moscow/O=Example Company/OU=IT/CN=$DOMAIN"
+    
+    # Подписание нового сертификата
+    openssl x509 -req -in /etc/ssl/private/srv1.csr -CA /etc/ssl/certs/ca.crt -CAkey /etc/ssl/private/ca.key -CAcreateserial -out "$CERT_FILE" -days 30
+    
+    # Перезапуск Apache
+    systemctl restart httpd
+    
+    echo "$(date) - Сертификат успешно обновлен"
+else
+    echo "$(date) - Сертификат действителен более $DAYS_REMAINING дней, обновление не требуется"
+fi
+EOF
+
+sudo chmod +x /usr/local/bin/update_ssl_cert.sh
